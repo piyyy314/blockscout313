@@ -1,15 +1,56 @@
-name: PR Conventional Commit Validation
+# This GitHub Actions workflow validates pull request titles.
+# Updates: Handles errors gracefully and adds support for taskPrefixes validation.
+
+name: PR Title Check
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, edited]
+    types:
+      - opened
+      - edited
+      - synchronize
 
 jobs:
-  validate-pr-title:
+  title-check:
     runs-on: ubuntu-latest
+
     steps:
-      - name: PR Conventional Commit Validation
-        uses:  ytanikin/pr-conventional-commits@b72758283dcbee706975950e96bc4bf323a8d8c0
-        with:
-          task_types: '["feat","fix","chore","perf","refactor","docs","doc"]'
-          add_label: 'false'
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Validate PR title
+        id: validate-title
+        run: |
+          PR_TITLE="${{ github.event.pull_request.title }}"
+
+          # Regular expression for Conventional Commits
+          REGEX="^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test|task)\(.*\): .+"
+
+          # Validate the title
+          if [[ ! "${PR_TITLE}" =~ ${REGEX} ]]; then
+            echo "::error::Invalid PR title. Ensure it follows the Conventional Commits format: <type>(<scope>): <description>"
+            echo "Found title: ${PR_TITLE}"
+            exit 1
+          fi
+
+          # Additional validation for taskPrefixes
+          TASKPREFIXES=("TASK-" "BUG-" "HOTFIX-")
+          PREFIX_VALID=false
+
+          for PREFIX in "${TASKPREFIXES[@]}"; do
+            if [[ "${PR_TITLE}" == ${PREFIX}* ]]; then
+              PREFIX_VALID=true
+              break
+            fi
+          done
+
+          if [[ "${PREFIX_VALID}" == false ]]; then
+            echo "::error::Invalid PR title prefix. Titles must start with one of the approved prefixes: ${TASKPREFIXES[*]}"
+            exit 1
+          fi
+
+        shell: bash
+
+      - name: Success
+        if: ${{ success() }}
+        run: echo "PR title validation passed."
