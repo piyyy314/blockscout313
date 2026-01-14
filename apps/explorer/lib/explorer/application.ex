@@ -39,6 +39,7 @@ defmodule Explorer.Application do
   alias Explorer.Prometheus.Instrumenter
   alias Explorer.Repo.PrometheusLogger
   alias Explorer.Utility.Hammer
+  alias Utils.ConfigHelper
 
   @impl Application
   def start(_type, _args) do
@@ -93,7 +94,6 @@ defmodule Explorer.Application do
       con_cache_child_spec(MarketHistoryCache.cache_name()),
       con_cache_child_spec(RSK.cache_name(), ttl_check_interval: :timer.minutes(1), global_ttl: :timer.minutes(30)),
       {Redix, redix_opts()},
-      {Explorer.Utility.MissingRangesManipulator, []},
       {Explorer.Utility.ReplicaAccessibilityManager, []},
       :hackney_pool.child_spec(:default,
         recv_timeout: 60_000,
@@ -497,7 +497,7 @@ defmodule Explorer.Application do
   end
 
   defp redix_opts do
-    {System.get_env("ACCOUNT_REDIS_URL") || "redis://127.0.0.1:6379", [name: :redix]}
+    {ConfigHelper.parse_url_env_var("ACCOUNT_REDIS_URL", "redis://127.0.0.1:6379"), [name: :redix]}
   end
 
   defp configure_libcluster do

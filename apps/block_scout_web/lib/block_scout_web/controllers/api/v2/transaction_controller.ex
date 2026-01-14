@@ -49,6 +49,7 @@ defmodule BlockScoutWeb.API.V2.TransactionController do
   alias BlockScoutWeb.MicroserviceInterfaces.TransactionInterpretation, as: TransactionInterpretationService
   alias BlockScoutWeb.Models.TransactionStateHelper
   alias BlockScoutWeb.Schemas.API.V2.ErrorResponses.{ForbiddenResponse, NotFoundResponse}
+  alias Explorer.Account.WatchlistAddress
   alias Explorer.{Chain, PagingOptions, Repo}
   alias Explorer.Chain.Arbitrum.Reader.API.Settlement, as: ArbitrumSettlementReader
   alias Explorer.Chain.Beacon.Deposit, as: BeaconDeposit
@@ -219,7 +220,7 @@ defmodule BlockScoutWeb.API.V2.TransactionController do
     description: "Retrieves a paginated list of transactions with optional filtering by status, type, and method.",
     parameters:
       base_params() ++
-        [transaction_filter_param()] ++
+        [transaction_filter_param(), transaction_type_param()] ++
         define_paging_params(["block_number", "index", "items_count", "hash", "inserted_at"]),
     responses: [
       ok:
@@ -431,9 +432,7 @@ defmodule BlockScoutWeb.API.V2.TransactionController do
     It renders the list of L2 transactions bound to the specified batch.
   """
   @spec optimism_batch(Plug.Conn.t(), map()) :: Plug.Conn.t()
-  def optimism_batch(conn, %{batch_number_param: batch_number_string} = params) do
-    {batch_number, ""} = Integer.parse(batch_number_string)
-
+  def optimism_batch(conn, %{batch_number_param: batch_number} = params) do
     l2_block_number_from = OptimismTransactionBatch.edge_l2_block_number(batch_number, :min, @api_true)
     l2_block_number_to = OptimismTransactionBatch.edge_l2_block_number(batch_number, :max, @api_true)
 
@@ -465,9 +464,7 @@ defmodule BlockScoutWeb.API.V2.TransactionController do
     It renders the list of L2 transactions bound to the specified batch.
   """
   @spec scroll_batch(Plug.Conn.t(), map()) :: Plug.Conn.t()
-  def scroll_batch(conn, %{batch_number_param: batch_number_string} = params) do
-    {batch_number, ""} = Integer.parse(batch_number_string)
-
+  def scroll_batch(conn, %{batch_number_param: batch_number} = params) do
     {l2_block_number_from, l2_block_number_to} =
       case ScrollReader.batch(batch_number, @api_true) do
         {:ok, batch} -> {batch.l2_block_range.from, batch.l2_block_range.to}
@@ -908,7 +905,8 @@ defmodule BlockScoutWeb.API.V2.TransactionController do
         |> Keyword.merge(paging_options(params, [:validated]))
         |> Keyword.merge(@api_true)
 
-      {watchlist_names, transactions_plus_one} = Chain.fetch_watchlist_transactions(watchlist_id, full_options)
+      {watchlist_names, transactions_plus_one} =
+        WatchlistAddress.fetch_watchlist_transactions(watchlist_id, full_options)
 
       {transactions, next_page} = split_list_by_page(transactions_plus_one)
 

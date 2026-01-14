@@ -42,8 +42,8 @@ defmodule BlockScoutWeb.API.V2.BlockController do
   alias Explorer.Chain
   alias Explorer.Chain.Arbitrum.Reader.API.Settlement, as: ArbitrumSettlementReader
   alias Explorer.Chain.Beacon.Deposit
+  alias Explorer.Chain.{Block, InternalTransaction}
   alias Explorer.Chain.Cache.{BlockNumber, Counters.AverageBlockTime}
-  alias Explorer.Chain.InternalTransaction
   alias Explorer.Chain.Optimism.TransactionBatch, as: OptimismTransactionBatch
   alias Explorer.Chain.Scroll.Reader, as: ScrollReader
   alias Timex.Duration
@@ -181,7 +181,7 @@ defmodule BlockScoutWeb.API.V2.BlockController do
         ok_response
 
       _ ->
-        {:lost_consensus, Chain.nonconsensus_block_by_number(number, @api_true)}
+        {:lost_consensus, Block.nonconsensus_block_by_number(number, @api_true)}
     end
   end
 
@@ -377,7 +377,7 @@ defmodule BlockScoutWeb.API.V2.BlockController do
     description: "Retrieves transactions included in a specific block, ordered by transaction index.",
     parameters:
       base_params() ++
-        [block_hash_or_number_param(), transaction_type_param()] ++
+        [block_hash_or_number_param(), block_transaction_type_param()] ++
         define_paging_params(["block_number", "index", "items_count"]),
     responses: [
       ok:
