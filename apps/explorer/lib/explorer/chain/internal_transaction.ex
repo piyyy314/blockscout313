@@ -3,6 +3,7 @@ defmodule Explorer.Chain.InternalTransaction do
 
   use Explorer.Schema
 
+  alias EthereumJSONRPC.Utility.RangesHelper
   alias Explorer.{Chain, PagingOptions}
   alias Explorer.Chain.{Address, Block, Data, Hash, PendingBlockOperation, Transaction, Wei}
   alias Explorer.Chain.Block.Reader.General, as: BlockReaderGeneral
@@ -11,6 +12,7 @@ defmodule Explorer.Chain.InternalTransaction do
   alias Explorer.Chain.InternalTransaction.{CallType, Type}
   alias Explorer.Migrator.DeleteZeroValueInternalTransactions
 
+  import EthereumJSONRPC, only: [fetch_block_internal_transactions: 2]
   import Explorer.Chain.SmartContract.Proxy.Models.Implementation, only: [proxy_implementations_association: 0]
 
   @typep paging_options :: {:paging_options, PagingOptions.t()}
@@ -987,10 +989,17 @@ defmodule Explorer.Chain.InternalTransaction do
 
   @doc """
   Returns the ordered paginated list of internal transactions (consensus blocks only) from the DB with address, block preloads
+
+  ## Options
+    * `:exclude_origin_internal_transaction` - when `true`, filters out the origin sender transaction (index 0 with type :call)
+    * `:paging_options` - a `t:Explorer.PagingOptions.t/0` for pagination
+    * `:transaction_hash` - optional transaction hash to filter by
+    * `:api?` - whether this is an API request
   """
   @spec fetch([paging_options | api?]) :: []
   def fetch(options) do
     paging_options = Keyword.get(options, :paging_options, @default_paging_options)
+    exclude_zero_index_internal_transaction = Keyword.get(options, :exclude_origin_internal_transaction, false)
 
     case paging_options do
       %PagingOptions{key: {0, 0}} ->
@@ -1006,6 +1015,7 @@ defmodule Explorer.Chain.InternalTransaction do
 
         __MODULE__
         |> where_nonpending_block()
+        |> maybe_filter_origin_transaction(exclude_zero_index_internal_transaction)
         |> page_internal_transaction(paging_options, %{index_internal_transaction_desc_order: true})
         |> where_internal_transactions_by_transaction_hash(Keyword.get(options, :transaction_hash))
         |> where_consensus_transactions()
@@ -1058,6 +1068,9 @@ defmodule Explorer.Chain.InternalTransaction do
     |> where([internal_transaction], internal_transaction.transaction_hash == ^transaction_hash)
   end
 
+  defp maybe_filter_origin_transaction(query, true), do: where_is_different_from_parent_transaction(query)
+  defp maybe_filter_origin_transaction(query, false), do: query
+
   @doc """
   Conditionally filters internal transactions to include or exclude zero-value transfers.
 
@@ -1082,5 +1095,153 @@ defmodule Explorer.Chain.InternalTransaction do
       [internal_transaction],
       (internal_transaction.type == :call and internal_transaction.value > ^0) or internal_transaction.type != :call
     )
+  end
+
+  @doc """
+  Fetches and formats the first internal transaction trace for the given transaction parameters from the EthereumJSONRPC.
+
+  This function retrieves the first trace by delegating to
+  EthereumJSONRPC.fetch_first_trace and then formats the result into a
+  structure suitable for insertion into the database, including type
+  conversions and block index calculation.
+
+  ## Parameters
+  - `transactions_params`: List of transaction parameter maps containing
+    block_hash, block_number, hash_data, and transaction_index
+  - `json_rpc_named_arguments`: Named arguments for the JSON RPC call
+
+  ## Returns
+  - `{:ok, [formatted_trace]}` if the trace is successfully fetched and
+    formatted
+  - `{:error, reason}` if there's an error fetching the trace
+  - `:ignore` if the trace should be ignored
+  """
+  @spec fetch_first_trace(list(map()), keyword()) :: {:ok, [map()]} | {:error, term()} | :ignore
+  def fetch_first_trace(transactions_params, json_rpc_named_arguments) do
+    case EthereumJSONRPC.fetch_first_trace(transactions_params, json_rpc_named_arguments) do
+      {:ok, [%{first_trace: first_trace, block_hash: block_hash, json_rpc_named_arguments: json_rpc_named_arguments}]} ->
+        format_transaction_first_trace(first_trace, block_hash, json_rpc_named_arguments)
+
+      {:error, error} ->
+        {:error, error}
+
+      :ignore ->
+        :ignore
+    end
+  end
+
+  defp format_transaction_first_trace(first_trace, block_hash, json_rpc_named_arguments) do
+    {:ok, to_address_hash} =
+      if Map.has_key?(first_trace, :to_address_hash) do
+        Chain.string_to_address_hash(first_trace.to_address_hash)
+      else
+        {:ok, nil}
+      end
+
+    {:ok, from_address_hash} = Chain.string_to_address_hash(first_trace.from_address_hash)
+
+    {:ok, created_contract_address_hash} =
+      if Map.has_key?(first_trace, :created_contract_address_hash) do
+        Chain.string_to_address_hash(first_trace.created_contract_address_hash)
+      else
+        {:ok, nil}
+      end
+
+    {:ok, transaction_hash} = Chain.string_to_full_hash(first_trace.transaction_hash)
+
+    {:ok, call_type} =
+      if Map.has_key?(first_trace, :call_type) do
+        CallType.load(first_trace.call_type)
+      else
+        {:ok, nil}
+      end
+
+    {:ok, type} = Type.load(first_trace.type)
+
+    {:ok, input} =
+      if Map.has_key?(first_trace, :input) do
+        Data.cast(first_trace.input)
+      else
+        {:ok, nil}
+      end
+
+    {:ok, output} =
+      if Map.has_key?(first_trace, :output) do
+        Data.cast(first_trace.output)
+      else
+        {:ok, nil}
+      end
+
+    {:ok, created_contract_code} =
+      if Map.has_key?(first_trace, :created_contract_code) do
+        Data.cast(first_trace.created_contract_code)
+      else
+        {:ok, nil}
+      end
+
+    {:ok, init} =
+      if Map.has_key?(first_trace, :init) do
+        Data.cast(first_trace.init)
+      else
+        {:ok, nil}
+      end
+
+    block_index =
+      get_block_index(%{
+        transaction_index: first_trace.transaction_index,
+        transaction_hash: first_trace.transaction_hash,
+        block_number: first_trace.block_number,
+        json_rpc_named_arguments: json_rpc_named_arguments
+      })
+
+    value = %Wei{value: Decimal.new(first_trace.value)}
+
+    first_trace_formatted =
+      first_trace
+      |> Map.merge(%{
+        block_index: block_index,
+        block_hash: block_hash,
+        call_type: call_type,
+        to_address_hash: to_address_hash,
+        created_contract_address_hash: created_contract_address_hash,
+        from_address_hash: from_address_hash,
+        input: input,
+        output: output,
+        created_contract_code: created_contract_code,
+        init: init,
+        transaction_hash: transaction_hash,
+        type: type,
+        value: value
+      })
+
+    {:ok, [first_trace_formatted]}
+  end
+
+  defp get_block_index(%{
+         transaction_index: transaction_index,
+         transaction_hash: transaction_hash,
+         block_number: block_number,
+         json_rpc_named_arguments: json_rpc_named_arguments
+       }) do
+    if transaction_index == 0 do
+      0
+    else
+      filtered_block_numbers = RangesHelper.filter_traceable_block_numbers([block_number])
+      {:ok, traces} = fetch_block_internal_transactions(filtered_block_numbers, json_rpc_named_arguments)
+
+      sorted_traces =
+        traces
+        |> Enum.sort_by(&{&1.transaction_index, &1.index})
+        |> Enum.with_index()
+
+      {_, block_index} =
+        sorted_traces
+        |> Enum.find({nil, -1}, fn {trace, _} ->
+          trace.transaction_index == transaction_index &&
+            trace.transaction_hash == transaction_hash
+        end)
+
+      block_index
+    end
   end
 end

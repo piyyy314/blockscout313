@@ -1,5 +1,19 @@
 # Changelog
 
+## 9.3.2
+
+### 🐛 Bug Fixes
+
+- Handle_continue bad return value ([#13769](https://github.com/blockscout/blockscout/issues/13769))
+- Make `find_history_and_token_fetchers` public ([#13768](https://github.com/blockscout/blockscout/issues/13768))
+- Resolve TLS version issue on application startup ([#13767](https://github.com/blockscout/blockscout/issues/13767))
+
+## 9.3.1
+
+### 🐛 Bug Fixes
+
+- Fix blob transactions list API endpoint ([#13756](https://github.com/blockscout/blockscout/issues/13756))
+
 ## 9.3.0
 
 ### 🚀 Features
@@ -17,6 +31,8 @@
 
 ### 🐛 Bug Fixes
 
+- Fix tests for on-demand internal transaction fetcher ([#13744](https://github.com/blockscout/blockscout/pull/13744))
+- `batch_number` input param is now integer for OP and Scroll API endpoints ([#13727](https://github.com/blockscout/blockscout/pull/13727))
 - Set timeout: :infinity for delete zero value migration ([#13708](https://github.com/blockscout/blockscout/pull/13708))
 - Limit batch size for placeholders insertion ([#13699](https://github.com/blockscout/blockscout/pull/13699))
 - Add missed reputation fetch ([#13695](https://github.com/blockscout/blockscout/pull/13695))
@@ -44,6 +60,7 @@
 
 ### ⚡ Performance
 
+- Improve performance of api/v2/main-page/indexing-status endpoint ([#13730](https://github.com/blockscout/blockscout/pull/13730))
 - Implement celo aggregated election rewards ([#13418](https://github.com/blockscout/blockscout/issues/13418))
 
 ### ⚙️ Miscellaneous Tasks
@@ -73,6 +90,7 @@
 - Increase genesis file content fetch timeout ([#13527](https://github.com/blockscout/blockscout/issues/13527))
 
 ### New ENV variables
+
 | Variable              | Description                                                                                                                                                      | Parameters                                                                                      |
 | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
 | `INDEXER_DISABLE_HOT_SMART_CONTRACTS_FETCHER`                 | If `true`, `Indexer.Fetcher.Stats.HotSmartContracts` won't be started. Implemented in [#13471](https://github.com/blockscout/blockscout/pull/13471).                                                                                                                                                                                                                                                                                                                                                                             | Version: v9.3.0\+ <br />Default: `false` <br />Applications: Indexer                                        |
